@@ -1,0 +1,8 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+data/
+backups/
+miniapp/node_modules/
+miniapp/dist/

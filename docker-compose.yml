@@ -1,0 +1,32 @@
+services:
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_PATH: /data/wishlist.sqlite3
+    volumes:
+      - wishlist_data:/data
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+  bot:
+    build: .
+    command: ["python", "-m", "bot.main"]
+    env_file: .env
+    environment:
+      DATABASE_PATH: /data/wishlist.sqlite3
+    volumes:
+      - wishlist_data:/data
+    depends_on:
+      - api
+    restart: unless-stopped
+  miniapp:
+    build:
+      context: ./miniapp
+    environment:
+      VITE_API_BASE: ""
+    ports:
+      - "127.0.0.1:4173:4173"
+    restart: unless-stopped
+volumes:
+  wishlist_data:
