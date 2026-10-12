@@ -84,7 +84,16 @@ async def start(message: Message):
     init_db(OWNER_IDS)
     args = (message.text or "").split(maxsplit=1)
     payload = args[1].strip() if len(args) > 1 else ""
-    if payload.isdigit() and int(payload) in OWNER_IDS:
+    if message.from_user and message.from_user.id in OWNER_IDS and not payload:
+        owner_id = message.from_user.id
+        if WEBAPP_URL:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="Открыть мой вишлист", web_app=WebAppInfo(url=f"{WEBAPP_URL}/?owner={owner_id}&edit=1"))
+            ]])
+            await message.answer("Ваш вишлист готов к просмотру и редактированию.", reply_markup=keyboard)
+        else:
+            await message.answer("Откройте свой вишлист по персональной ссылке.")
+    elif payload.isdigit() and int(payload) in OWNER_IDS:
         owner_id = int(payload)
         await message.answer("Список доступен по этой персональной ссылке. Выберите раздел:", reply_markup=view_keyboard(owner_id))
     else:
