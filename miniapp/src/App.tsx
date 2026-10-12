@@ -5,7 +5,7 @@ declare global { interface Window { Telegram?: { WebApp?: { initData: string; in
 
 type Owner = { id: number; display_name: string; item_count: number }
 type Category = { id: number; owner_id: number; name: string; emoji: string; item_count: number }
-type Item = { id: number; owner_id: number; category_id: number | null; title: string; description: string; url: string; price: string; image_url: string; category_name?: string; category_emoji?: string; is_reserved: number }
+type Item = { id: number; owner_id: number; category_id: number | null; title: string; description: string; url: string; price: string; image_url: string; category_name?: string; category_emoji?: string; is_reserved: number; can_cancel_reservation?: number }
 const API = import.meta.env.VITE_API_BASE ?? ''
 const OWNER_IDS = [8580512680, 1973334354]
 const tg = window.Telegram?.WebApp
@@ -36,11 +36,12 @@ function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [newCat, setNewCat] = useState('')
   const [newEmoji, setNewEmoji] = useState('🎁')
+  const [ownerName, setOwnerName] = useState('')
   const [form, setForm] = useState({ title:'', category_id:'', price:'', url:'', description:'', image_url:'' })
   const viewerId = tg?.initDataUnsafe?.user?.id
   const isOwner = viewerId === ownerId && OWNER_IDS.includes(viewerId || 0)
   const activeOwner = owners.find(o => o.id === ownerId)
-  const filtered = useMemo(() => items.filter(i => `${i.title} ${i.description} ${i.category_name || ''}`.toLowerCase().includes(query.toLowerCase())), [items, query])
+  const filtered = useMemo(() => items.filter(i => `${i.title} ${i.description} ${i.category_name || ''}`.toLowerCase().includes(query.toLowerCase())).sort((a,b) => (a.category_name || 'Без категории').localeCompare(b.category_name || 'Без категории', 'ru') || a.title.localeCompare(b.title, 'ru')), [items, query])
 
   async function refresh() {
     if (!hasValidLink) return
@@ -48,7 +49,7 @@ function App() {
       const [o, c, w] = await Promise.all([
         api('/api/owners'), api(`/api/categories/${ownerId}`), api(`/api/wishlist/${ownerId}${categoryId ? `?category_id=${categoryId}` : ''}`)
       ])
-      setOwners(o); setCategories(c); setItems(w.items)
+      setOwners(o); setOwnerName(o.find((x: Owner) => x.id === ownerId)?.display_name || ''); setCategories(c); setItems(w.items)
     } catch (e) { setNotice(e instanceof Error ? e.message : 'Ошибка загрузки') }
   }
   useEffect(() => { tg?.ready(); tg?.expand(); }, [])
@@ -87,6 +88,16 @@ function App() {
     try { await api(`/api/categories/${cat.id}`, { method:'DELETE' }); if (categoryId === cat.id) setCategoryId(null); setNotice('Категория удалена'); await refresh() }
     catch (e) { setNotice(e instanceof Error ? e.message : 'Ошибка') }
   }
+  async function cancelReservation(item: Item) {
+    if (!confirm(`Отменить бронирование «${item.title}»?`)) return
+    try { await api(`/api/items/${item.id}/reserve`, { method:'DELETE' }); setNotice('Бронирование отменено'); await refresh() }
+    catch (e) { setNotice(e instanceof Error ? e.message : 'Не удалось отменить бронирование') }
+  }
+  async function saveOwnerName() {
+    if (!ownerName.trim()) return setNotice('Введите имя владельца')
+    try { await api(`/api/owners/${ownerId}`, { method:'PATCH', body:JSON.stringify({display_name:ownerName.trim()}) }); setNotice('Имя сохранено'); await refresh() }
+    catch (e) { setNotice(e instanceof Error ? e.message : 'Не удалось сохранить имя') }
+  }
   async function reserve(item: Item) {
     if (!tg?.initData) return setNotice('Бронирование доступно при открытии Mini App из Telegram')
     try { await api(`/api/items/${item.id}/reserve`, { method:'POST' }); setNotice('Подарок забронирован — сюрприз сохранён 🤫'); await refresh() }
@@ -118,11 +129,12 @@ function App() {
           <div className="item-grid">{filtered.map(item => <article className="item-card" key={item.id}>
             <div className="item-art">{item.image_url ? <img src={item.image_url} alt="" onError={e=>{e.currentTarget.style.display='none'}}/> : <div className="art-placeholder"><Gift size={29}/></div>}
               {item.is_reserved===1 && !isOwner && <span className="reserved"><LockKeyhole size={12}/> Забронировано</span>}
-              {isOwner && <button className="card-delete" onClick={()=>deleteItem(item)} aria-label="Удалить"><Trash2 size={15}/></button>}
+              {isOwner && <div className="card-actions"><button className="card-edit" onClick={()=>openEditor(item)} aria-label="Редактировать">Изменить</button><button className="card-delete" onClick={()=>deleteItem(item)} aria-label="Удалить"><Trash2 size={15}/></button></div>}
             </div>
             <div className="item-info">{item.category_name && <div className="item-category">{item.category_emoji} {item.category_name}</div>}<h3>{item.title}</h3>{item.description && <p>{item.description}</p>}
               <div className="item-footer">{item.price && <strong>{item.price}</strong>}{item.url && <a className="link-button" href={item.url} target="_blank" rel="noreferrer">Смотреть <ArrowUpRight size={15}/></a>}</div>
-              {!isOwner && item.is_reserved!==1 && <button className="reserve-button" onClick={()=>reserve(item)}><Gift size={15}/> Забронировать подарок</button>}
+              {!isOwner && item.is_reserved!==1 && <button className="reserve-button" onClick={()=>reserve(item)}><Gift size={15}/> Забронировать</button>}
+              {!isOwner && item.can_cancel_reservation===1 && <button className="reserve-button cancel-reserve" onClick={()=>cancelReservation(item)}>Отменить бронирование</button>}
             </div>
           </article>)}</div>}
       </>}
@@ -130,6 +142,7 @@ function App() {
     </div>}
     {showSettings && isOwner && <div className="overlay" onClick={()=>setShowSettings(false)}><section className="sheet" onClick={e=>e.stopPropagation()}>
       <div className="sheet-head"><div><span className="kicker">УПРАВЛЕНИЕ</span><h2>Настройки списка</h2></div><button className="icon-button" onClick={()=>setShowSettings(false)}><X size={18}/></button></div>
+      <label className="field-label owner-name-field">Имя владельца списка<input value={ownerName} maxLength={80} onChange={e=>setOwnerName(e.target.value)} placeholder="Например, Алексей"/><button className="primary-button" onClick={saveOwnerName}>Сохранить имя</button></label>
       <h3 className="field-label">Новая категория</h3><div className="category-form"><input className="emoji-input" value={newEmoji} onChange={e=>setNewEmoji(e.target.value)} maxLength={4}/><input value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="Например, Путешествия"/><button className="primary-button" onClick={addCategory}>Добавить</button></div>
       <div className="manage-categories">{categories.map(c=><div key={c.id}><span>{c.emoji} {c.name}</span><button onClick={()=>removeCategory(c)}><Trash2 size={15}/></button></div>)}</div>
       <div className="danger-zone"><div><strong>Удалить все желания</strong><p>Категории останутся, желания и бронирования удалятся.</p></div><button className="danger-button" onClick={clearAll}>Очистить</button></div>
