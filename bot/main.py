@@ -21,15 +21,6 @@ class AddFlow(StatesGroup):
     waiting_text = State()
     confirming = State()
 
-def home_keyboard():
-    rows = [
-        [InlineKeyboardButton(text="💝 Вишлист владельца 1", callback_data="view:8580512680"),
-         InlineKeyboardButton(text="💝 Вишлист владельца 2", callback_data="view:1973334354")]
-    ]
-    if WEBAPP_URL:
-        rows.append([InlineKeyboardButton(text="✨ Открыть Mini App", web_app=WebAppInfo(url=WEBAPP_URL))])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
 def view_keyboard(owner_id):
     rows = [
         [InlineKeyboardButton(text="📋 Все желания", callback_data=f"list:{owner_id}:all"),
@@ -37,7 +28,6 @@ def view_keyboard(owner_id):
     ]
     if WEBAPP_URL:
         rows.append([InlineKeyboardButton(text="Открыть Mini App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/?owner={owner_id}"))])
-    rows.append([InlineKeyboardButton(text="↩️ На главную", callback_data="home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def item_keyboard(owner_id, mode="all"):
@@ -96,23 +86,14 @@ async def start(message: Message):
     payload = args[1].strip() if len(args) > 1 else ""
     if payload.isdigit() and int(payload) in OWNER_IDS:
         owner_id = int(payload)
-        await message.answer("💝 Вот вишлист. Выбери, как смотреть желания:", reply_markup=view_keyboard(owner_id))
+        await message.answer("Список доступен по этой персональной ссылке. Выберите раздел:", reply_markup=view_keyboard(owner_id))
     else:
-        await message.answer(
-            "Привет! Это наш общий бот желаний 💝\n\n"
-            "Выбери вишлист, чтобы посмотреть желания. Добавлять и редактировать их могут только владельцы.",
-            reply_markup=home_keyboard()
-        )
-
-@dp.callback_query(F.data == "home")
-async def home(call: CallbackQuery):
-    await call.message.edit_text("Выбери вишлист:", reply_markup=home_keyboard())
-    await call.answer()
+        await message.answer("Для доступа используйте персональную ссылку. Откройте ссылку, которую вам отправили.")
 
 @dp.callback_query(F.data.startswith("view:"))
 async def view(call: CallbackQuery):
     owner_id = int(call.data.split(":")[1])
-    await call.message.edit_text("Как посмотреть желания?", reply_markup=view_keyboard(owner_id))
+    await call.message.edit_text("Выберите раздел списка:", reply_markup=view_keyboard(owner_id))
     await call.answer()
 
 @dp.callback_query(F.data.startswith("list:"))
@@ -135,7 +116,7 @@ async def list_items(call: CallbackQuery):
             if row["price"]: line += f" · {row['price']}"
             if row["url"]: line += f"\n   🔗 {row['url']}"
             parts.append(line)
-        text = "💝 Желания:\n\n" + "\n\n".join(parts)
+        text = "Список:\n\n" + "\n\n".join(parts)
         if len(rows) == 30:
             text += "\n\nПоказаны первые 30. Открой Mini App для полного списка."
     await call.message.edit_text(text, reply_markup=item_keyboard(owner_id, mode), disable_web_page_preview=True)
@@ -177,7 +158,7 @@ async def category_items(call: CallbackQuery):
 @dp.message(Command("add"))
 async def add_start(message: Message, state: FSMContext):
     if message.from_user.id not in OWNER_IDS:
-        await message.answer("Добавлять желания могут только владельцы.")
+        await message.answer("Нет доступа к добавлению записей.")
         return
     rows = [[InlineKeyboardButton(text=f"Добавить в список {i+1}", callback_data=f"addowner:{owner_id}")]
             for i, owner_id in enumerate(OWNER_IDS) if owner_id == message.from_user.id]
@@ -238,7 +219,7 @@ async def bulk_confirm(call: CallbackQuery, state: FSMContext):
     parsed = data.get("parsed", [])
     count = add_to_db(owner_id, parsed)
     await state.clear()
-    await call.message.edit_text(f"Готово! Добавлено желаний: {count} 💝")
+    await call.message.edit_text(f"Готово! Добавлено желаний: {count}")
     await call.answer()
 
 @dp.callback_query(F.data == "bulk:cancel", AddFlow.confirming)
