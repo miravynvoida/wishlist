@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ArrowUpRight, Check, ChevronRight, CirclePlus, Gift, Layers3, List, LockKeyhole, Plus, Search, Settings2, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Check, ChevronRight, CirclePlus, Gift, Layers3, List, LockKeyhole, Plus, Search, Settings2, Trash2, X, Sun, Moon } from 'lucide-react'
 
 declare global { interface Window { Telegram?: { WebApp?: { initData: string; initDataUnsafe?: { user?: { id: number; first_name?: string } }; ready: () => void; expand: () => void; colorScheme?: string } } } }
 
@@ -32,6 +32,8 @@ function App() {
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('wishlist-theme') as 'light' | 'dark') || 'light')
+  useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem('wishlist-theme', theme) }, [theme])
   const [editor, setEditor] = useState<Item | null | 'new'>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [newCat, setNewCat] = useState('')
@@ -107,7 +109,7 @@ function App() {
   return <main className="app-shell">
     <header className="topbar">
       <div className="brand"><div className="brand-icon"><Gift size={19}/></div><div><div className="brand-name">Личный список</div><div className="brand-sub">Список желаний</div></div></div>
-      {isOwner && <button className="icon-button" onClick={() => setShowSettings(v => !v)} aria-label="Настройки"><Settings2 size={19}/></button>}
+      <div className="header-actions"><button className="icon-button theme-toggle" onClick={() => setTheme(v => v === 'light' ? 'dark' : 'light')} aria-label={theme === 'light' ? 'Включить тёмную тему' : 'Включить светлую тему'} title={theme === 'light' ? 'Тёмная тема' : 'Светлая тема'}>{theme === 'light' ? <Moon size={18}/> : <Sun size={18}/>}</button>{isOwner && <button className="icon-button" onClick={() => setShowSettings(v => !v)} aria-label="Настройки"><Settings2 size={19}/></button>}</div>
     </header>
     {notice && <button className="notice" onClick={() => setNotice('')}>{notice}<X size={15}/></button>}
     {!hasValidLink ? <section className="hero"><div className="eyebrow"><span className="dot"/> ДОСТУП ОГРАНИЧЕН</div><h1>Нет доступа</h1><p>Откройте персональную ссылку, чтобы просмотреть список.</p></section> : <section className="hero"><div className="eyebrow"><span className="dot"/> СПИСОК ЖЕЛАНИЙ</div><h1>Список</h1><p>Записи и категории.</p></section>}
