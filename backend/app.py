@@ -198,6 +198,6 @@ def cancel_reservation(item_id: int, user=Depends(require_telegram_user)):
 
 # Bothost serves the Mini App and API on the same HTTPS domain.
 # The frontend is built in the Docker image from miniapp/.
-_dist = Path(__file__).resolve().parent.parent / "miniapp" / "dist"
+_dist = Path(os.getenv("MINIAPP_DIST", str(Path(__file__).resolve().parent.parent / "miniapp" / "dist")))
 if _dist.exists():
     app.mount("/", StaticFiles(directory=str(_dist), html=True), name="miniapp")
