@@ -1,0 +1,159 @@
+import { useEffect, useMemo, useState } from 'react'
+import { ArrowLeft, ArrowUpRight, Check, ChevronRight, CirclePlus, Gift, Heart, Layers3, List, LockKeyhole, Plus, Search, Settings2, Trash2, X } from 'lucide-react'
+
+declare global { interface Window { Telegram?: { WebApp?: { initData: string; initDataUnsafe?: { user?: { id: number; first_name?: string } }; ready: () => void; expand: () => void; colorScheme?: string } } } }
+
+type Owner = { id: number; display_name: string; item_count: number }
+type Category = { id: number; owner_id: number; name: string; emoji: string; item_count: number }
+type Item = { id: number; owner_id: number; category_id: number | null; title: string; description: string; url: string; price: string; image_url: string; category_name?: string; category_emoji?: string; is_reserved: number }
+const API = import.meta.env.VITE_API_BASE ?? ''
+const OWNER_IDS = [8580512680, 1973334354]
+const tg = window.Telegram?.WebApp
+
+async function api(path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers)
+  headers.set('Content-Type', 'application/json')
+  if (tg?.initData) headers.set('X-Telegram-Init-Data', tg.initData)
+  const response = await fetch(`${API}${path}`, { ...init, headers })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body.detail || 'Что-то пошло не так')
+  return body
+}
+function App() {
+  const params = new URLSearchParams(window.location.search)
+  const initialOwner = Number(params.get('owner')) || OWNER_IDS[0]
+  const [owners, setOwners] = useState<Owner[]>([])
+  const [ownerId, setOwnerId] = useState(initialOwner)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [items, setItems] = useState<Item[]>([])
+  const [mode, setMode] = useState<'all'|'category'>((params.get('mode') as 'all'|'category') || 'all')
+  const [categoryId, setCategoryId] = useState<number | null>(null)
+  const [query, setQuery] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [editor, setEditor] = useState<Item | null | 'new'>(null)
+  const [showSettings, setShowSettings] = useState(false)
+  const [newCat, setNewCat] = useState('')
+  const [newEmoji, setNewEmoji] = useState('🎁')
+  const [form, setForm] = useState({ title:'', category_id:'', price:'', url:'', description:'', image_url:'' })
+  const viewerId = tg?.initDataUnsafe?.user?.id
+  const isOwner = viewerId === ownerId && OWNER_IDS.includes(viewerId || 0)
+  const activeOwner = owners.find(o => o.id === ownerId)
+  const filtered = useMemo(() => items.filter(i => `${i.title} ${i.description} ${i.category_name || ''}`.toLowerCase().includes(query.toLowerCase())), [items, query])
+
+  async function refresh() {
+    try {
+      const [o, c, w] = await Promise.all([
+        api('/api/owners'), api(`/api/categories/${ownerId}`), api(`/api/wishlist/${ownerId}${categoryId ? `?category_id=${categoryId}` : ''}`)
+      ])
+      setOwners(o); setCategories(c); setItems(w.items)
+    } catch (e) { setNotice(e instanceof Error ? e.message : 'Ошибка загрузки') }
+  }
+  useEffect(() => { tg?.ready(); tg?.expand(); }, [])
+  useEffect(() => { setCategoryId(null); setQuery(''); }, [ownerId])
+  useEffect(() => { refresh() }, [ownerId, categoryId])
+  function openEditor(item: Item | null) {
+    setForm(item ? { title:item.title, category_id:item.category_id ? String(item.category_id) : '', price:item.price || '', url:item.url || '', description:item.description || '', image_url:item.image_url || '' } : { title:'', category_id: categories[0] ? String(categories[0].id) : '', price:'', url:'', description:'', image_url:'' })
+    setEditor(item || 'new')
+  }
+  async function saveItem() {
+    if (!form.title.trim()) return setNotice('Укажи название желания')
+    setBusy(true)
+    try {
+      const payload = { owner_id: ownerId, title: form.title.trim(), category_id: form.category_id ? Number(form.category_id) : null, price:form.price, url:form.url, description:form.description, image_url:form.image_url }
+      await api(editor === 'new' ? '/api/items' : `/api/items/${(editor as Item).id}`, { method: editor === 'new' ? 'POST' : 'PATCH', body: JSON.stringify(payload) })
+      setEditor(null); setNotice('Желание сохранено 💝'); await refresh()
+    } catch (e) { setNotice(e instanceof Error ? e.message : 'Ошибка сохранения') } finally { setBusy(false) }
+  }
+  async function deleteItem(item: Item) {
+    if (!confirm(`Удалить «${item.title}»?`)) return
+    try { await api(`/api/items/${item.id}`, { method:'DELETE' }); setNotice('Желание удалено'); await refresh() }
+    catch (e) { setNotice(e instanceof Error ? e.message : 'Ошибка удаления') }
+  }
+  async function clearAll() {
+    if (!confirm('Удалить ВСЕ желания из твоего вишлиста? Это действие нельзя отменить.')) return
+    try { await api(`/api/wishlist/${ownerId}`, { method:'DELETE' }); setShowSettings(false); setNotice('Список очищен'); await refresh() }
+    catch (e) { setNotice(e instanceof Error ? e.message : 'Ошибка удаления') }
+  }
+  async function addCategory() {
+    if (!newCat.trim()) return
+    try { await api('/api/categories', { method:'POST', body:JSON.stringify({ owner_id:ownerId, name:newCat.trim(), emoji:newEmoji }) }); setNewCat(''); setNotice('Категория добавлена'); await refresh() }
+    catch (e) { setNotice(e instanceof Error ? e.message : 'Не удалось добавить категорию') }
+  }
+  async function removeCategory(cat: Category) {
+    if (!confirm(`Удалить категорию «${cat.name}»? Желания останутся в списке без категории.`)) return
+    try { await api(`/api/categories/${cat.id}`, { method:'DELETE' }); if (categoryId === cat.id) setCategoryId(null); setNotice('Категория удалена'); await refresh() }
+    catch (e) { setNotice(e instanceof Error ? e.message : 'Ошибка') }
+  }
+  async function reserve(item: Item) {
+    if (!tg?.initData) return setNotice('Бронирование доступно при открытии Mini App из Telegram')
+    try { await api(`/api/items/${item.id}/reserve`, { method:'POST' }); setNotice('Подарок забронирован — сюрприз сохранён 🤫'); await refresh() }
+    catch (e) { setNotice(e instanceof Error ? e.message : 'Не удалось забронировать') }
+  }
+
+  return <main className="app-shell">
+    <header className="topbar">
+      <div className="brand"><div className="brand-icon"><Heart size={19} fill="currentColor"/></div><div><div className="brand-name">our wishlist</div><div className="brand-sub">маленькие мечты, большие чувства</div></div></div>
+      {isOwner && <button className="icon-button" onClick={() => setShowSettings(v => !v)} aria-label="Настройки"><Settings2 size={19}/></button>}
+    </header>
+    {notice && <button className="notice" onClick={() => setNotice('')}>{notice}<X size={15}/></button>}
+    <section className="hero">
+      <div className="eyebrow"><span className="dot"/> НАША КОЛЛЕКЦИЯ ЖЕЛАНИЙ</div>
+      <h1>То, что делает<br/><em>нас счастливыми.</em></h1>
+      <p>Собирайте идеи для подарков в одном красивом месте.</p>
+      <div className="owner-switch">
+        {owners.map((o, i) => <button key={o.id} className={ownerId===o.id?'owner-pill active':''} onClick={() => { setOwnerId(o.id); history.replaceState({}, '', `?owner=${o.id}`) }}>
+          <span className="avatar">{i===0?'А':'♡'}</span><span>{i===0?'Мой вишлист':'Вишлист парня'}</span><ChevronRight size={15}/>
+        </button>)}
+      </div>
+    </section>
+    <div className="content">
+      <div className="section-heading"><div><span className="kicker">WISHLIST</span><h2>{activeOwner?.display_name || 'Желания'} <span className="count">{items.length}</span></h2></div>
+        {isOwner && <button className="add-button" onClick={() => openEditor(null)}><Plus size={17}/> Добавить</button>}
+      </div>
+      <div className="mode-tabs">
+        <button className={mode==='all'?'selected':''} onClick={() => {setMode('all');setCategoryId(null)}}><List size={16}/> Все желания</button>
+        <button className={mode==='category'?'selected':''} onClick={() => {setMode('category');setCategoryId(null)}}><Layers3 size={16}/> Категории</button>
+      </div>
+      {mode==='category' && !categoryId ? <div className="category-grid">
+        {categories.map(c => <button className="category-card" key={c.id} onClick={() => setCategoryId(c.id)}><span className="category-emoji">{c.emoji}</span><span className="category-name">{c.name}</span><span className="category-bottom">{c.item_count} желаний <ChevronRight size={15}/></span></button>)}
+        {isOwner && <button className="category-add" onClick={() => setShowSettings(true)}><CirclePlus size={21}/><span>Новая категория</span></button>}
+      </div> : <>
+        {categoryId && <button className="back-link" onClick={() => setCategoryId(null)}><ArrowLeft size={16}/> Все категории</button>}
+        <label className="searchbox"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Найти желание..."/>{query && <button onClick={()=>setQuery('')}><X size={14}/></button>}</label>
+        {filtered.length===0 ? <div className="empty"><div className="empty-icon"><Gift size={26}/></div><h3>Пока здесь тихо</h3><p>{isOwner?'Добавь первое желание — пусть мечты будут ближе.':'В этом разделе пока нет желаний.'}</p>{isOwner && <button className="primary-button" onClick={()=>openEditor(null)}>Добавить желание</button>}</div> :
+          <div className="item-grid">{filtered.map(item => <article className="item-card" key={item.id}>
+            <div className="item-art">{item.image_url ? <img src={item.image_url} alt="" onError={e=>{e.currentTarget.style.display='none'}}/> : <div className="art-placeholder"><Gift size={29}/></div>}
+              {item.is_reserved===1 && !isOwner && <span className="reserved"><LockKeyhole size={12}/> Забронировано</span>}
+              {isOwner && <button className="card-delete" onClick={()=>deleteItem(item)} aria-label="Удалить"><Trash2 size={15}/></button>}
+            </div>
+            <div className="item-info">{item.category_name && <div className="item-category">{item.category_emoji} {item.category_name}</div>}<h3>{item.title}</h3>{item.description && <p>{item.description}</p>}
+              <div className="item-footer">{item.price && <strong>{item.price}</strong>}{item.url && <a className="link-button" href={item.url} target="_blank" rel="noreferrer">Смотреть <ArrowUpRight size={15}/></a>}</div>
+              {!isOwner && item.is_reserved!==1 && <button className="reserve-button" onClick={()=>reserve(item)}><Gift size={15}/> Забронировать подарок</button>}
+            </div>
+          </article>)}</div>}
+      </>}
+      {isOwner && <div className="owner-note"><LockKeyhole size={15}/> Ты можешь редактировать только свой список.</div>}
+    </div>
+    {showSettings && isOwner && <div className="overlay" onClick={()=>setShowSettings(false)}><section className="sheet" onClick={e=>e.stopPropagation()}>
+      <div className="sheet-head"><div><span className="kicker">УПРАВЛЕНИЕ</span><h2>Настройки списка</h2></div><button className="icon-button" onClick={()=>setShowSettings(false)}><X size={18}/></button></div>
+      <h3 className="field-label">Новая категория</h3><div className="category-form"><input className="emoji-input" value={newEmoji} onChange={e=>setNewEmoji(e.target.value)} maxLength={4}/><input value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="Например, Путешествия"/><button className="primary-button" onClick={addCategory}>Добавить</button></div>
+      <div className="manage-categories">{categories.map(c=><div key={c.id}><span>{c.emoji} {c.name}</span><button onClick={()=>removeCategory(c)}><Trash2 size={15}/></button></div>)}</div>
+      <div className="danger-zone"><div><strong>Удалить все желания</strong><p>Категории останутся, желания и бронирования удалятся.</p></div><button className="danger-button" onClick={clearAll}>Очистить</button></div>
+    </section></div>}
+    {editor && isOwner && <div className="overlay" onClick={()=>setEditor(null)}><section className="sheet" onClick={e=>e.stopPropagation()}>
+      <div className="sheet-head"><div><span className="kicker">ТВОЯ МЕЧТА</span><h2>{editor==='new'?'Новое желание':'Редактировать'}</h2></div><button className="icon-button" onClick={()=>setEditor(null)}><X size={18}/></button></div>
+      <div className="form-fields">
+        <label>Название *<input value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Что ты хочешь?"/></label>
+        <label>Категория<select value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})}><option value="">Без категории</option>{categories.map(c=><option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}</select></label>
+        <label>Ссылка на товар<input value={form.url} onChange={e=>setForm({...form,url:e.target.value})} placeholder="https://..."/></label>
+        <label>Цена<input value={form.price} onChange={e=>setForm({...form,price:e.target.value})} placeholder="Например, 5 000 ₽"/></label>
+        <label>Ссылка на фото<input value={form.image_url} onChange={e=>setForm({...form,image_url:e.target.value})} placeholder="https://..."/></label>
+        <label>Комментарий<textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Размер, цвет, детали..." rows={3}/></label>
+      </div>
+      <button className="primary-button full-button" disabled={busy} onClick={saveItem}>{busy?'Сохраняю...':'Сохранить желание'}</button>
+    </section></div>}
+    <footer><div className="footer-heart">♡</div><p>с любовью, для двоих</p><span>OUR WISHLIST · PRIVATE DREAMS</span></footer>
+  </main>
+}
+export default App
