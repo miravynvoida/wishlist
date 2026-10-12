@@ -63,12 +63,13 @@ def wishlist(owner_id: int, mode: str = Query("all", pattern="^(all|category)$")
         sql = """
           SELECT i.id,i.owner_id,i.category_id,i.title,i.description,i.url,i.price,i.image_url,
                  i.sort_order,i.created_at,i.updated_at,c.name AS category_name,c.emoji AS category_emoji,
-                 CASE WHEN r.item_id IS NULL THEN 0 ELSE 1 END AS is_reserved
+                 CASE WHEN r.item_id IS NULL THEN 0 ELSE 1 END AS is_reserved,
+                 CASE WHEN r.reserver_id IS NOT NULL AND r.reserver_id=? THEN 1 ELSE 0 END AS can_cancel_reservation
           FROM items i LEFT JOIN categories c ON c.id=i.category_id
           LEFT JOIN reservations r ON r.item_id=i.id
           WHERE i.owner_id=?
         """
-        params = [owner_id]
+        params = [viewer_id if viewer_id is not None else -1, owner_id]
         if category_id is not None:
             sql += " AND i.category_id=?"
             params.append(category_id)
@@ -89,6 +90,9 @@ class ItemIn(BaseModel):
     price: str = Field(default="", max_length=100)
     image_url: str = Field(default="", max_length=2000)
 
+class OwnerNameIn(BaseModel):
+    display_name: str = Field(min_length=1, max_length=80)
+
 class CategoryIn(BaseModel):
     owner_id: int
     name: str = Field(min_length=1, max_length=80)
@@ -99,6 +103,13 @@ def check_owner_category(conn, owner_id, category_id):
         row = conn.execute("SELECT id FROM categories WHERE id=? AND owner_id=?", (category_id, owner_id)).fetchone()
         if not row:
             raise HTTPException(400, "Category does not belong to this wishlist")
+
+@app.patch("/api/owners/{owner_id}")
+def update_owner_name(owner_id: int, data: OwnerNameIn, user=Depends(require_telegram_user)):
+    require_owner(owner_id, user)
+    with connection() as conn:
+        conn.execute("UPDATE owners SET display_name=? WHERE telegram_id=?", (data.display_name.strip(), owner_id))
+        return {"ok": True}
 
 @app.post("/api/items")
 def create_item(data: ItemIn, user=Depends(require_telegram_user)):
@@ -166,7 +177,8 @@ def delete_category(category_id: int, user=Depends(require_telegram_user)):
         if not category:
             raise HTTPException(404, "Category not found")
         require_owner(category["owner_id"], user)
-        # Items remain in the wishlist but become uncategorized.
+        # Explicitly detach items before deleting the category.
+        conn.execute("UPDATE items SET category_id=NULL, updated_at=CURRENT_TIMESTAMP WHERE category_id=?", (category_id,))
         conn.execute("DELETE FROM categories WHERE id=?", (category_id,))
         return {"ok": True}
 
