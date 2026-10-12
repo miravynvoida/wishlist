@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ArrowUpRight, Check, ChevronRight, CirclePlus, Gift, Heart, Layers3, List, LockKeyhole, Plus, Search, Settings2, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Check, ChevronRight, CirclePlus, Gift, Layers3, List, LockKeyhole, Plus, Search, Settings2, Trash2, X } from 'lucide-react'
 
 declare global { interface Window { Telegram?: { WebApp?: { initData: string; initDataUnsafe?: { user?: { id: number; first_name?: string } }; ready: () => void; expand: () => void; colorScheme?: string } } } }
 
@@ -21,9 +21,10 @@ async function api(path: string, init: RequestInit = {}) {
 }
 function App() {
   const params = new URLSearchParams(window.location.search)
-  const initialOwner = Number(params.get('owner')) || OWNER_IDS[0]
+  const requestedOwner = Number(params.get('owner'))
+  const hasValidLink = OWNER_IDS.includes(requestedOwner)
   const [owners, setOwners] = useState<Owner[]>([])
-  const [ownerId, setOwnerId] = useState(initialOwner)
+  const [ownerId, setOwnerId] = useState(requestedOwner)
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [mode, setMode] = useState<'all'|'category'>((params.get('mode') as 'all'|'category') || 'all')
@@ -42,6 +43,7 @@ function App() {
   const filtered = useMemo(() => items.filter(i => `${i.title} ${i.description} ${i.category_name || ''}`.toLowerCase().includes(query.toLowerCase())), [items, query])
 
   async function refresh() {
+    if (!hasValidLink) return
     try {
       const [o, c, w] = await Promise.all([
         api('/api/owners'), api(`/api/categories/${ownerId}`), api(`/api/wishlist/${ownerId}${categoryId ? `?category_id=${categoryId}` : ''}`)
@@ -57,17 +59,17 @@ function App() {
     setEditor(item || 'new')
   }
   async function saveItem() {
-    if (!form.title.trim()) return setNotice('Укажи название желания')
+    if (!form.title.trim()) return setNotice('Укажите название записи')
     setBusy(true)
     try {
       const payload = { owner_id: ownerId, title: form.title.trim(), category_id: form.category_id ? Number(form.category_id) : null, price:form.price, url:form.url, description:form.description, image_url:form.image_url }
       await api(editor === 'new' ? '/api/items' : `/api/items/${(editor as Item).id}`, { method: editor === 'new' ? 'POST' : 'PATCH', body: JSON.stringify(payload) })
-      setEditor(null); setNotice('Желание сохранено 💝'); await refresh()
+      setEditor(null); setNotice('Запись сохранена'); await refresh()
     } catch (e) { setNotice(e instanceof Error ? e.message : 'Ошибка сохранения') } finally { setBusy(false) }
   }
   async function deleteItem(item: Item) {
     if (!confirm(`Удалить «${item.title}»?`)) return
-    try { await api(`/api/items/${item.id}`, { method:'DELETE' }); setNotice('Желание удалено'); await refresh() }
+    try { await api(`/api/items/${item.id}`, { method:'DELETE' }); setNotice('Запись удалена'); await refresh() }
     catch (e) { setNotice(e instanceof Error ? e.message : 'Ошибка удаления') }
   }
   async function clearAll() {
@@ -93,22 +95,13 @@ function App() {
 
   return <main className="app-shell">
     <header className="topbar">
-      <div className="brand"><div className="brand-icon"><Heart size={19} fill="currentColor"/></div><div><div className="brand-name">our wishlist</div><div className="brand-sub">маленькие мечты, большие чувства</div></div></div>
+      <div className="brand"><div className="brand-icon"><Gift size={19}/></div><div><div className="brand-name">Личный список</div><div className="brand-sub">Список желаний</div></div></div>
       {isOwner && <button className="icon-button" onClick={() => setShowSettings(v => !v)} aria-label="Настройки"><Settings2 size={19}/></button>}
     </header>
     {notice && <button className="notice" onClick={() => setNotice('')}>{notice}<X size={15}/></button>}
-    <section className="hero">
-      <div className="eyebrow"><span className="dot"/> НАША КОЛЛЕКЦИЯ ЖЕЛАНИЙ</div>
-      <h1>То, что делает<br/><em>нас счастливыми.</em></h1>
-      <p>Собирайте идеи для подарков в одном красивом месте.</p>
-      <div className="owner-switch">
-        {owners.map((o, i) => <button key={o.id} className={ownerId===o.id?'owner-pill active':''} onClick={() => { setOwnerId(o.id); history.replaceState({}, '', `?owner=${o.id}`) }}>
-          <span className="avatar">{i===0?'А':'♡'}</span><span>{i===0?'Мой вишлист':'Вишлист парня'}</span><ChevronRight size={15}/>
-        </button>)}
-      </div>
-    </section>
-    <div className="content">
-      <div className="section-heading"><div><span className="kicker">WISHLIST</span><h2>{activeOwner?.display_name || 'Желания'} <span className="count">{items.length}</span></h2></div>
+    {!hasValidLink ? <section className="hero"><div className="eyebrow"><span className="dot"/> ДОСТУП ОГРАНИЧЕН</div><h1>Нет доступа</h1><p>Откройте персональную ссылку, чтобы просмотреть список.</p></section> : <section className="hero"><div className="eyebrow"><span className="dot"/> СПИСОК ЖЕЛАНИЙ</div><h1>Список</h1><p>Записи и категории.</p></section>}
+    {hasValidLink && <div className="content">
+      <div className="section-heading"><div><span className="kicker">СПИСОК</span><h2>{activeOwner?.display_name || 'Желания'} <span className="count">{items.length}</span></h2></div>
         {isOwner && <button className="add-button" onClick={() => openEditor(null)}><Plus size={17}/> Добавить</button>}
       </div>
       <div className="mode-tabs">
@@ -121,7 +114,7 @@ function App() {
       </div> : <>
         {categoryId && <button className="back-link" onClick={() => setCategoryId(null)}><ArrowLeft size={16}/> Все категории</button>}
         <label className="searchbox"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Найти желание..."/>{query && <button onClick={()=>setQuery('')}><X size={14}/></button>}</label>
-        {filtered.length===0 ? <div className="empty"><div className="empty-icon"><Gift size={26}/></div><h3>Пока здесь тихо</h3><p>{isOwner?'Добавь первое желание — пусть мечты будут ближе.':'В этом разделе пока нет желаний.'}</p>{isOwner && <button className="primary-button" onClick={()=>openEditor(null)}>Добавить желание</button>}</div> :
+        {filtered.length===0 ? <div className="empty"><div className="empty-icon"><Gift size={26}/></div><h3>Пока здесь тихо</h3><p>{isOwner?'Добавьте первую запись.':'В этом разделе пока нет записей.'}</p>{isOwner && <button className="primary-button" onClick={()=>openEditor(null)}>Добавить желание</button>}</div> :
           <div className="item-grid">{filtered.map(item => <article className="item-card" key={item.id}>
             <div className="item-art">{item.image_url ? <img src={item.image_url} alt="" onError={e=>{e.currentTarget.style.display='none'}}/> : <div className="art-placeholder"><Gift size={29}/></div>}
               {item.is_reserved===1 && !isOwner && <span className="reserved"><LockKeyhole size={12}/> Забронировано</span>}
@@ -134,7 +127,7 @@ function App() {
           </article>)}</div>}
       </>}
       {isOwner && <div className="owner-note"><LockKeyhole size={15}/> Ты можешь редактировать только свой список.</div>}
-    </div>
+    </div>}
     {showSettings && isOwner && <div className="overlay" onClick={()=>setShowSettings(false)}><section className="sheet" onClick={e=>e.stopPropagation()}>
       <div className="sheet-head"><div><span className="kicker">УПРАВЛЕНИЕ</span><h2>Настройки списка</h2></div><button className="icon-button" onClick={()=>setShowSettings(false)}><X size={18}/></button></div>
       <h3 className="field-label">Новая категория</h3><div className="category-form"><input className="emoji-input" value={newEmoji} onChange={e=>setNewEmoji(e.target.value)} maxLength={4}/><input value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="Например, Путешествия"/><button className="primary-button" onClick={addCategory}>Добавить</button></div>
@@ -142,9 +135,9 @@ function App() {
       <div className="danger-zone"><div><strong>Удалить все желания</strong><p>Категории останутся, желания и бронирования удалятся.</p></div><button className="danger-button" onClick={clearAll}>Очистить</button></div>
     </section></div>}
     {editor && isOwner && <div className="overlay" onClick={()=>setEditor(null)}><section className="sheet" onClick={e=>e.stopPropagation()}>
-      <div className="sheet-head"><div><span className="kicker">ТВОЯ МЕЧТА</span><h2>{editor==='new'?'Новое желание':'Редактировать'}</h2></div><button className="icon-button" onClick={()=>setEditor(null)}><X size={18}/></button></div>
+      <div className="sheet-head"><div><span className="kicker">ЗАПИСЬ</span><h2>{editor==='new'?'Новая запись':'Редактировать'}</h2></div><button className="icon-button" onClick={()=>setEditor(null)}><X size={18}/></button></div>
       <div className="form-fields">
-        <label>Название *<input value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Что ты хочешь?"/></label>
+        <label>Название *<input value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Название"/></label>
         <label>Категория<select value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})}><option value="">Без категории</option>{categories.map(c=><option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}</select></label>
         <label>Ссылка на товар<input value={form.url} onChange={e=>setForm({...form,url:e.target.value})} placeholder="https://..."/></label>
         <label>Цена<input value={form.price} onChange={e=>setForm({...form,price:e.target.value})} placeholder="Например, 5 000 ₽"/></label>
@@ -153,7 +146,7 @@ function App() {
       </div>
       <button className="primary-button full-button" disabled={busy} onClick={saveItem}>{busy?'Сохраняю...':'Сохранить желание'}</button>
     </section></div>}
-    <footer><div className="footer-heart">♡</div><p>с любовью, для двоих</p><span>OUR WISHLIST · PRIVATE DREAMS</span></footer>
+    <footer><span>ЛИЧНЫЙ СПИСОК</span></footer>
   </main>
 }
 export default App
