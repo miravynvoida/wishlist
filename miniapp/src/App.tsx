@@ -21,7 +21,7 @@ async function api(path: string, init: RequestInit = {}) {
 }
 function App() {
   const params = new URLSearchParams(window.location.search)
-  const requestedOwner = Number(params.get('owner'))
+  const requestedOwner = Number(params.get('owner') || params.get('start'))
   const hasValidLink = OWNER_IDS.includes(requestedOwner)
   const [owners, setOwners] = useState<Owner[]>([])
   const [ownerId, setOwnerId] = useState(requestedOwner)
@@ -35,6 +35,7 @@ function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('wishlist-theme') as 'light' | 'dark') || 'light')
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem('wishlist-theme', theme) }, [theme])
   const [editor, setEditor] = useState<Item | null | 'new'>(null)
+  const [selectedItem, setSelectedItem] = useState<Item | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [newCat, setNewCat] = useState('')
   const [newEmoji, setNewEmoji] = useState('🎁')
@@ -101,7 +102,7 @@ function App() {
     catch (e) { setNotice(e instanceof Error ? e.message : 'Не удалось сохранить имя') }
   }
   async function reserve(item: Item) {
-    if (!tg?.initData) return setNotice('Бронирование доступно при открытии Mini App из Telegram')
+    if (!tg?.initData) return setNotice('Для безопасного бронирования откройте ссылку в Telegram')
     try { await api(`/api/items/${item.id}/reserve`, { method:'POST' }); setNotice('Подарок забронирован — сюрприз сохранён 🤫'); await refresh() }
     catch (e) { setNotice(e instanceof Error ? e.message : 'Не удалось забронировать') }
   }
@@ -128,20 +129,30 @@ function App() {
         {categoryId && <button className="back-link" onClick={() => setCategoryId(null)}><ArrowLeft size={16}/> Все категории</button>}
         <label className="searchbox"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Найти желание..."/>{query && <button onClick={()=>setQuery('')}><X size={14}/></button>}</label>
         {filtered.length===0 ? <div className="empty"><div className="empty-icon"><Gift size={26}/></div><h3>Пока здесь тихо</h3><p>{isOwner?'Добавьте первую запись.':'В этом разделе пока нет записей.'}</p>{isOwner && <button className="primary-button" onClick={()=>openEditor(null)}>Добавить желание</button>}</div> :
-          <div className="item-grid">{filtered.map(item => <article className="item-card" key={item.id}>
+          <div className="item-grid">{filtered.map(item => <article className="item-card" key={item.id} onClick={() => setSelectedItem(item)}>
             <div className="item-art">{item.image_url ? <img src={item.image_url} alt="" onError={e=>{e.currentTarget.style.display='none'}}/> : <div className="art-placeholder"><Gift size={29}/></div>}
               {item.is_reserved===1 && !isOwner && <span className="reserved"><LockKeyhole size={12}/> Забронировано</span>}
-              {isOwner && <div className="card-actions"><button className="card-edit" onClick={()=>openEditor(item)} aria-label="Редактировать">Изменить</button><button className="card-delete" onClick={()=>deleteItem(item)} aria-label="Удалить"><Trash2 size={15}/></button></div>}
+              {isOwner && <div className="card-actions" onClick={e=>e.stopPropagation()}><button className="card-edit" onClick={()=>openEditor(item)} aria-label="Редактировать">Изменить</button><button className="card-delete" onClick={()=>deleteItem(item)} aria-label="Удалить"><Trash2 size={15}/></button></div>}
             </div>
             <div className="item-info">{item.category_name && <div className="item-category">{item.category_emoji} {item.category_name}</div>}<h3>{item.title}</h3>{item.description && <p>{item.description}</p>}
-              <div className="item-footer">{item.price && <strong>{item.price}</strong>}{item.url && <a className="link-button" href={item.url} target="_blank" rel="noreferrer">Смотреть <ArrowUpRight size={15}/></a>}</div>
-              {!isOwner && item.is_reserved!==1 && <button className="reserve-button" onClick={()=>reserve(item)}><Gift size={15}/> Забронировать</button>}
-              {!isOwner && item.can_cancel_reservation===1 && <button className="reserve-button cancel-reserve" onClick={()=>cancelReservation(item)}>Отменить бронирование</button>}
+              <div className="item-footer">{item.price && <strong>{item.price}</strong>}{item.url && <a className="link-button" onClick={e=>e.stopPropagation()} href={item.url} target="_blank" rel="noreferrer">Открыть товар <ArrowUpRight size={15}/></a>}</div>
+              {!isOwner && item.is_reserved!==1 && <button className="reserve-button" onClick={e=>{e.stopPropagation(); reserve(item)}}><Gift size={15}/> Забронировать</button>}
+              {!isOwner && item.can_cancel_reservation===1 && <button className="reserve-button cancel-reserve" onClick={e=>{e.stopPropagation(); cancelReservation(item)}}>Отменить бронирование</button>}
             </div>
           </article>)}</div>}
       </>}
       {isOwner && <div className="owner-note"><LockKeyhole size={15}/> Ты можешь редактировать только свой список.</div>}
     </div>}
+    {selectedItem && <div className="overlay" onClick={()=>setSelectedItem(null)}><section className="sheet detail-sheet" onClick={e=>e.stopPropagation()}>
+      <div className="sheet-head"><div><span className="kicker">ЖЕЛАНИЕ</span><h2>{selectedItem.title}</h2></div><button className="icon-button" onClick={()=>setSelectedItem(null)}><X size={18}/></button></div>
+      {selectedItem.image_url ? <img className="detail-image" src={selectedItem.image_url} alt={selectedItem.title}/> : <div className="detail-placeholder"><Gift size={36}/></div>}
+      {selectedItem.category_name && <div className="item-category">{selectedItem.category_emoji} {selectedItem.category_name}</div>}
+      {selectedItem.price && <div className="detail-price">{selectedItem.price}</div>}
+      {selectedItem.description && <p className="detail-description">{selectedItem.description}</p>}
+      {selectedItem.url && <a className="primary-button full-button detail-link" href={selectedItem.url} target="_blank" rel="noreferrer">Открыть товар <ArrowUpRight size={16}/></a>}
+      {isOwner ? <div className="detail-actions"><button className="primary-button" onClick={()=>{const item=selectedItem;setSelectedItem(null);openEditor(item)}}>Редактировать</button><button className="danger-button" onClick={()=>{const item=selectedItem;setSelectedItem(null);deleteItem(item)}}>Удалить</button></div> : selectedItem.is_reserved!==1 ? <button className="primary-button full-button" onClick={()=>reserve(selectedItem)}><Gift size={16}/> Забронировать</button> : <div className="reserved-detail"><LockKeyhole size={16}/> Уже забронировано</div>}
+      {!isOwner && selectedItem.can_cancel_reservation===1 && <button className="reserve-button cancel-reserve" onClick={()=>cancelReservation(selectedItem)}>Отменить бронирование</button>}
+    </section></div>}
     {showSettings && isOwner && <div className="overlay" onClick={()=>setShowSettings(false)}><section className="sheet" onClick={e=>e.stopPropagation()}>
       <div className="sheet-head"><div><span className="kicker">УПРАВЛЕНИЕ</span><h2>Настройки списка</h2></div><button className="icon-button" onClick={()=>setShowSettings(false)}><X size={18}/></button></div>
       <label className="field-label owner-name-field">Имя владельца списка<input value={ownerName} maxLength={80} onChange={e=>setOwnerName(e.target.value)} placeholder="Например, Алексей"/><button className="primary-button" onClick={saveOwnerName}>Сохранить имя</button></label>
@@ -161,6 +172,12 @@ function App() {
       </div>
       <button className="primary-button full-button" disabled={busy} onClick={saveItem}>{busy?'Сохраняю...':'Сохранить желание'}</button>
     </section></div>}
+    {hasValidLink && <nav className="bottom-nav">
+      <button className={mode==='all'?'active':''} onClick={()=>{setMode('all');setCategoryId(null)}}><List size={19}/><span>Желания</span></button>
+      <button className={mode==='category'?'active':''} onClick={()=>{setMode('category');setCategoryId(null)}}><Layers3 size={19}/><span>Категории</span></button>
+      {isOwner && <button className="nav-add" onClick={()=>openEditor(null)}><Plus size={22}/><span>Добавить</span></button>}
+      <button onClick={()=>isOwner ? setShowSettings(true) : setNotice('Чтобы забронировать подарок, откройте приложение через Telegram')}><Settings2 size={19}/><span>{isOwner?'Профиль':'Помощь'}</span></button>
+    </nav>}
     <footer><span>ЛИЧНЫЙ СПИСОК</span></footer>
   </main>
 }

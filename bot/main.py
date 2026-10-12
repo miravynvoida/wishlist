@@ -84,20 +84,39 @@ async def start(message: Message):
     init_db(OWNER_IDS)
     args = (message.text or "").split(maxsplit=1)
     payload = args[1].strip() if len(args) > 1 else ""
-    if message.from_user and message.from_user.id in OWNER_IDS and not payload:
-        owner_id = message.from_user.id
+
+    def owner_display_name(owner_id):
+        with connection() as conn:
+            row = conn.execute("SELECT display_name FROM owners WHERE telegram_id=?", (owner_id,)).fetchone()
+            return (row["display_name"] or "владельца") if row else "владельца"
+
+    def open_keyboard(owner_id):
         if WEBAPP_URL:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="Открыть мой вишлист", web_app=WebAppInfo(url=f"{WEBAPP_URL}/?owner={owner_id}&edit=1"))
+            return InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="Открыть вишлист", web_app=WebAppInfo(url=f"{WEBAPP_URL}/?owner={owner_id}"))
             ]])
-            await message.answer("Ваш вишлист готов к просмотру и редактированию.", reply_markup=keyboard)
-        else:
-            await message.answer("Откройте свой вишлист по персональной ссылке.")
-    elif payload.isdigit() and int(payload) in OWNER_IDS:
+        return None
+
+    if payload.isdigit() and int(payload) in OWNER_IDS:
         owner_id = int(payload)
-        await message.answer("Список доступен по этой персональной ссылке. Выберите раздел:", reply_markup=view_keyboard(owner_id))
-    else:
-        await message.answer("Для доступа используйте персональную ссылку. Откройте ссылку, которую вам отправили.")
+        display_name = owner_display_name(owner_id)
+        await message.answer(f"Вот вишлист {display_name}.", reply_markup=open_keyboard(owner_id))
+        return
+
+    if message.from_user and message.from_user.id in OWNER_IDS:
+        current_id = message.from_user.id
+        other_id = next((oid for oid in OWNER_IDS if oid != current_id), None)
+        rows = []
+        if WEBAPP_URL:
+            rows.append([InlineKeyboardButton(text="Открыть мой вишлист", web_app=WebAppInfo(url=f"{WEBAPP_URL}/?owner={current_id}"))])
+            if other_id:
+                other_name = owner_display_name(other_id)
+                rows.append([InlineKeyboardButton(text=f"Открыть вишлист: {other_name}", web_app=WebAppInfo(url=f"{WEBAPP_URL}/?owner={other_id}"))])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+        await message.answer("Выберите вишлист для просмотра или управления.", reply_markup=keyboard)
+        return
+
+    await message.answer("Чтобы посмотреть список желаний, откройте персональную ссылку, которую вам отправили.")
 
 @dp.callback_query(F.data.startswith("view:"))
 async def view(call: CallbackQuery):
